@@ -1,0 +1,181 @@
+#!/usr/bin/env python
+
+"""
+Name: Wylie Gab, Jeremiah Lema
+COMS 4186 Malware Analysis & Reverse Engineering Fall 2019
+Final Project - PCAP File Decrypter
+
+
+NOTE: This script requires sys, dpkt, datetime, struct, hashlib, Crypto.Cipher, and zlib packages. Install w/ pip.
+"""
+
+import sys, dpkt, datetime, struct, zlib, hashlib
+from Crypto.Cipher import DES
+
+encoding_array = [0xb5,0xdc,0x5b,0x42,0x90,0xaf,0x8,0xdd,0xbf,0x28,0xe0,0x68,0x9b,
+                  0x44,0x2d,0x65,0xde,0xc6,0x8f,0x99,0x6b,0x25,0x2e,0xbd,0xf9,0x11,
+                  0x2b,0xf1,0xb0,0x4f,0x88,0x51,0xe5,0x9d,5,0x55,0x6d,7,0x71,
+                  0x64,0x3e,0x50,0xeb,0xd,0x3d,0x93,0x53,0x5e,0x79,0x22,0xa2,
+                  0x76,0x15,0xb6,0xd3,0x19,0x16,0xa5,0x26,0xf4,0x66,
+                  0x85,0xa6,0xbe,0xd8,0xc9,0x67,0xb1,0x7c,0xfa,0x1b,0xac,0x6f,0x30,
+                  0x2f,0x92,0xf2,0x4b,0xec,0x27,0x63,0x5c,0x4e,0x56,0xfe,0xaa,0x24,
+                  0x69,0x4c,0x86,0x6,0xcc,0xf,0x34,0x10,0x3b,0x77,0xfb,0x73,0x6a,
+                  0x91,0x1d,0xc0,0xad,0xd0,0x89,0x9c,0x5f,0xf3,0x84,0x52,0xb7,0xa3,
+                  0x1e,0x21,0x18,0x40,0xf5,0xed,0xa9,0xca,0x31,0xc7,0xf6,0xf7,0xdf,0x35,
+                  0x58,0x70,0x59,0xd4,0x98,0xef,0xc1,0x3f,0x94,0x8e,0x1f,0xc2,0x39,
+                  0xcd,0x6c,0x60,0x23,0x20,0x9,0xcb,0x72,0x7e,0x0a,0xee,0x74,0x8b,0x8c,
+                  0x6e,0x3a,0x87,0xc3,0xa7,0x54,0x95,0x29,0xb,0x41,0x1,0x2a,0xc,0x33,
+                  0xd6,0x9e,0xce,0xa8,0x57,0x8a,0xd5,0xcf,0x78,0x1a,0x7a,0xe,0xea,0x32,
+                  0xab,0x43,0xe6,0x36,0x12,0x9f,0xc5,0x80,0xff,0xb8,0x7b,0xb9,0xba,0xc4,
+                  0x37,0xe7,0xfd,0xd7,0xb2,0xbb,0x8d,0x96,0xb3,0x38,0xae,0x13,0xbc,
+                  0xfc,0xb4,0x46,0xc8,0x7d,0x81,0xe1,0xf8,0x5d,0xd1,0xd2,0,0xd9,0xe2,0xa0,
+                  0x75,0x2c,0xda,0x17,0x97,0xdb,0xe3,0xe4,0x9a,0xe8,0xe9,0x45,0x47,
+                  0xf0,0x3c,0x48,2,3,0x1c,4,0x5a,0x14,0x49,0x4a,0x7f,0x82,0x4d,0x61,0x62,
+                  0x83,0xa1,0xa4]
+
+def print_plain(data):
+    
+    print(data.decode(errors='ignore'))
+    
+    
+def print_decompressed(data):
+    
+    print((zlib.decompress(data)).decode(errors='ignore'))
+    
+    
+def print_decoded(data):
+    
+    dat = bytearray()
+    
+    for byte in data:
+        ascii_indx = encoding_array[byte]
+        dat.append(ascii_indx)
+        
+    print(dat.decode(errors='ignore'))
+        
+        
+def print_special_decoded(data):
+    
+    rand_nums = data[0:16]
+    
+    var_110 = bytearray()
+    dst = bytearray()
+    
+    for i in range(0x100):
+        var_110.append(i)
+        
+    var_111 = 0x0
+    var_112 = 0x0
+    
+    var_1 = 0
+    
+    for i in range(0x100):
+            
+        var_1 = (var_1 + rand_nums[i % 16] + var_110[i]) % 0x100
+        
+        temp = var_110[var_1]
+        var_110[var_1] = var_110[i]
+        var_110[i] = temp
+        
+    
+    msg = data[16:]    
+    for i in range(len(msg)):
+        
+        var_111 += 0x1
+        
+        var_111 = var_111 % 0x100
+        
+        var_112 = (var_112 + var_110[var_111]) % 0x100
+            
+        temp = var_110[var_112]
+        var_110[var_112] = var_110[var_111]
+        var_110[var_111] = temp
+        
+        a = var_110[var_111] % 0x100
+        b = var_110[var_112] % 0x100
+        var_113 = (a + b) % 0x100
+            
+            
+        y = (msg[i] ^ var_110[var_113]) % 0x100
+        
+        dst.append(y)
+        
+    
+    print(bytes(dst).decode(errors='ignore'))
+
+def print_decrypted(data):
+    
+    key = data[0:16]
+    msg = data[16:]
+    
+    hashed_key = hashlib.md5(key).digest()
+    
+    # get 64-bit key
+    derived_key = hashed_key[:8]
+    
+    crypt = DES.new(derived_key, DES.MODE_ECB)
+    
+    print(crypt.decrypt(msg).decode(errors='ignore'))
+
+
+def print_message(data):
+    
+    if len(data) < 12 or data[0:4].decode() != 'peep':
+        return
+    
+    #size_data = struct.unpack('I', data[4:8])[0]  
+    mode = hex(struct.unpack('I', data[8:12])[0])
+    
+    #print('Packet size:', size_data)
+    print('Mode:', mode)
+    
+    if mode == hex(0x70): # case 0
+        print_plain(data[12:])
+    elif mode == hex(0x71): # case 1
+        print_decompressed(data[16:])
+    elif mode == hex(0x72): # case 2
+        print_decoded(data[12:])
+    elif mode == hex(0x73): # case 3
+        print_special_decoded(data[12:])
+    elif mode == hex(0x74): # case 4
+        print_decrypted(data[12:])
+        
+    
+
+def parse_packet(pcap_file):
+    file = open(pcap_file, 'rb')
+    pcap = dpkt.pcap.Reader(file)
+    pkt_count = 1
+    for ts, buf in pcap:
+        print('Packet: ', pkt_count)
+        #print('Timestamp: ', str(datetime.datetime.utcfromtimestamp(ts)))
+        
+        eth = dpkt.ethernet.Ethernet(buf)
+        
+        if not isinstance(eth.data, dpkt.ip.IP):
+            print('Not a correct IP datagram')
+            continue
+            
+        ip = eth.data
+        
+        if not isinstance(ip.data, dpkt.tcp.TCP):
+            print('Not a correct TCP packet')
+            continue
+            
+        print_message(ip.data.data)
+        
+        pkt_count += 1
+
+
+if __name__=='__main__':
+    
+    if len(sys.argv) < 2:
+        print('Usage: python decrypt_pcap.py <pcap_file>')
+        sys.exit(0)
+        
+        
+    pcap_file = sys.argv[1]
+    
+    parse_packet(pcap_file)
+    
+    
